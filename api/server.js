@@ -13,78 +13,98 @@ app.use(express.json())
 let cached = global.mongoose
 
 if (!cached) {
-  cached = global.mongoose = { conn: null, promise: null }
+ cached = global.mongoose = { conn:null, promise:null }
 }
 
-async function connectDB() {
+async function connectDB(){
 
-  if (cached.conn) return cached.conn
+ if(cached.conn) return cached.conn
 
-  if (!cached.promise) {
-    cached.promise = mongoose.connect(process.env.MONGO_URI,{
-      bufferCommands:false
-    }).then(m=>m)
-  }
+ if(!cached.promise){
 
-  cached.conn = await cached.promise
-  return cached.conn
+  cached.promise = mongoose.connect(
+   process.env.MONGO_URI,
+   {bufferCommands:false}
+  ).then(m=>m)
+
+ }
+
+ cached.conn = await cached.promise
+
+ return cached.conn
 }
 
 /* ---------------- SCHEMAS ---------------- */
 
 const PollSchema = new mongoose.Schema({
 
-  question:String,
+ poll_id:{
+  type:String,
+  unique:true
+ },
 
-  options:[
-    {
-      _id:false,
-      id:Number,
-      text:String,
-      votes:{type:Number,default:0}
-    }
-  ],
+ user_id:Number,
 
-  mode:{
-    type:String,
-    enum:["lock","unlock"],
-    default:"unlock"
-  },
+ main_channel:String,
 
-  end_time:Date,
+ sponsors:[String],
 
-  status:{
-    type:String,
-    enum:["active","ended"],
-    default:"active"
-  },
+ question:String,
 
-  created_by:Number,
-
-  force_sub_channel:{
-    type:String,
-    default:null
-  },
-
-  delete_at:Date,
-
-  created_at:{
-    type:Date,
-    default:Date.now
+ options:[
+  {
+   _id:false,
+   id:Number,
+   text:String,
+   votes:{type:Number,default:0}
   }
+ ],
+
+ mode:{
+  type:String,
+  enum:["Manual","Vote Target"],
+  default:"Manual"
+ },
+
+ vote_target:Number,
+
+ lock:{
+  type:String,
+  enum:["On","Off"],
+  default:"Off"
+ },
+
+ notify:{
+  type:String,
+  enum:["On","Off"],
+  default:"Off"
+ },
+
+ status:{
+  type:String,
+  enum:["active","ended"],
+  default:"active"
+ },
+
+ delete_at:Date,
+
+ created_at:{
+  type:Date,
+  default:Date.now
+ }
 
 })
 
 const VoteSchema = new mongoose.Schema({
 
-  poll_id:mongoose.Schema.Types.ObjectId,
-  user_id:Number,
-  option_id:Number,
+ poll_id:String,
+ user_id:Number,
+ option_id:Number,
 
-  created_at:{
-    type:Date,
-    default:Date.now
-  }
+ created_at:{
+  type:Date,
+  default:Date.now
+ }
 
 })
 
@@ -95,15 +115,15 @@ const Vote = mongoose.models.Vote || mongoose.model("Vote",VoteSchema)
 
 /* ---------------- HEALTH ---------------- */
 
-app.get("/", async (req,res)=>{
+app.get("/",async(req,res)=>{
 
  const interfaces = os.networkInterfaces()
 
  let serverIP = null
 
- for (const name of Object.keys(interfaces)) {
-  for (const net of interfaces[name]) {
-   if (net.family === "IPv4" && !net.internal) {
+ for(const name of Object.keys(interfaces)){
+  for(const net of interfaces[name]){
+   if(net.family==="IPv4" && !net.internal){
     serverIP = net.address
    }
   }
@@ -120,38 +140,49 @@ app.get("/", async (req,res)=>{
 
 /* ---------------- CREATE POLL ---------------- */
 
-app.post("/api/create", async (req,res)=>{
+app.post("/api/create",async(req,res)=>{
 
  await connectDB()
 
  const {
+  poll_id,
+  user_id,
+  main_channel,
+  sponsors,
   question,
   options,
   mode,
-  end_time,
-  created_by,
-  force_sub_channel
+  lock,
+  notify,
+  vote_target
  } = req.body
 
+ if(!poll_id || !question || !options)
+  return res.json({error:"Invalid poll data"})
+
  const formatted = options.map((o,i)=>({
-   id:i+1,
-   text:o,
-   votes:0
+  id:i+1,
+  text:o,
+  votes:0
  }))
 
- const pollData = {
+ const poll = await Poll.create({
+
+  poll_id,
+  user_id,
+  main_channel,
+  sponsors,
+
   question,
   options:formatted,
-  mode:mode || "unlock",
-  end_time,
-  created_by
- }
 
- if(force_sub_channel){
-  pollData.force_sub_channel = force_sub_channel
- }
+  mode:mode || "Manual",
+  vote_target:vote_target || null,
 
- const poll = await Poll.create(pollData)
+  lock:lock || "Off",
+  notify:notify || "Off"
+
+ })
 
  res.json(poll)
 
@@ -159,26 +190,16 @@ app.post("/api/create", async (req,res)=>{
 
 /* ---------------- GET POLL ---------------- */
 
-app.get("/api/poll/:id", async (req,res)=>{
+app.get("/api/poll/:id",async(req,res)=>{
 
  await connectDB()
 
- const poll = await Poll.findById(req.params.id)
+ const poll = await Poll.findOne({
+  poll_id:req.params.id
+ })
 
  if(!poll)
   return res.status(404).json({error:"Poll not found"})
-
- if(poll.end_time && new Date()>poll.end_time){
-
-  poll.status="ended"
-
-  if(!poll.delete_at){
-   poll.delete_at = new Date(Date.now()+12*60*60*1000)
-  }
-
-  await poll.save()
-
- }
 
  res.json(poll)
 
@@ -186,13 +207,13 @@ app.get("/api/poll/:id", async (req,res)=>{
 
 /* ---------------- VOTE ---------------- */
 
-app.post("/api/vote", async (req,res)=>{
+app.post("/api/vote",async(req,res)=>{
 
  await connectDB()
 
  const {poll_id,user_id,option_id} = req.body
 
- const poll = await Poll.findById(poll_id)
+ const poll = await Poll.findOne({poll_id})
 
  if(!poll)
   return res.json({error:"Poll not found"})
@@ -200,32 +221,33 @@ app.post("/api/vote", async (req,res)=>{
  if(poll.status==="ended")
   return res.json({error:"Poll ended"})
 
- if(poll.end_time && new Date()>poll.end_time){
+ const optionExists = poll.options.find(
+  o=>o.id===option_id
+ )
 
-  poll.status="ended"
-  poll.delete_at = new Date(Date.now()+12*60*60*1000)
+ if(!optionExists)
+  return res.json({error:"Invalid option"})
 
-  await poll.save()
+ const existing = await Vote.findOne({
+  poll_id,
+  user_id
+ })
 
-  return res.json({error:"Poll expired"})
- }
-
- const existing = await Vote.findOne({poll_id,user_id})
-
- if(poll.mode==="lock" && existing)
+ if(poll.lock==="On" && existing)
   return res.json({error:"Vote locked"})
 
  if(existing){
 
-  if(existing.option_id === option_id)
+  if(existing.option_id===option_id)
    return res.json({message:"Already voted"})
 
   await Poll.updateOne(
-   {_id:poll_id,"options.id":existing.option_id},
+   {poll_id,"options.id":existing.option_id},
    {$inc:{"options.$.votes":-1}}
   )
 
   existing.option_id = option_id
+
   await existing.save()
 
  }
@@ -241,33 +263,58 @@ app.post("/api/vote", async (req,res)=>{
  }
 
  await Poll.updateOne(
-  {_id:poll_id,"options.id":option_id},
+  {poll_id,"options.id":option_id},
   {$inc:{"options.$.votes":1}}
  )
 
- res.json({message:"Vote counted"})
+ const updatedPoll = await Poll.findOne({poll_id})
+
+ const totalVotes = updatedPoll.options.reduce(
+  (sum,o)=>sum+o.votes,0
+ )
+
+ if(
+  updatedPoll.mode==="Vote Target" &&
+  totalVotes>=updatedPoll.vote_target
+ ){
+
+  updatedPoll.status="ended"
+
+  updatedPoll.delete_at = new Date(
+   Date.now()+2*60*60*1000
+  )
+
+  await updatedPoll.save()
+
+ }
+
+ res.json({
+  message:"Vote counted"
+ })
 
 })
 
-/* ---------------- END POLL ---------------- */
+/* ---------------- END POLL (CREATOR) ---------------- */
 
-app.post("/api/endpoll", async (req,res)=>{
+app.post("/api/endpoll",async(req,res)=>{
 
  await connectDB()
 
  const {poll_id,user_id} = req.body
 
- const poll = await Poll.findById(poll_id)
+ const poll = await Poll.findOne({poll_id})
 
  if(!poll)
   return res.json({error:"Poll not found"})
 
- if(poll.created_by !== user_id)
+ if(poll.user_id!==user_id)
   return res.json({error:"Not authorized"})
 
- poll.status = "ended"
+ poll.status="ended"
 
- poll.delete_at = new Date(Date.now()+12*60*60*1000)
+ poll.delete_at = new Date(
+  Date.now()+2*60*60*1000
+ )
 
  await poll.save()
 
@@ -275,9 +322,41 @@ app.post("/api/endpoll", async (req,res)=>{
 
 })
 
+/* ---------------- ADMIN FORCE END ---------------- */
+
+app.post("/api/admin/end",async(req,res)=>{
+
+ await connectDB()
+
+ const {poll_id,secret} = req.body
+
+ if(secret!==process.env.ROOT_SECRET)
+  return res.status(403).json({
+   error:"Unauthorized"
+  })
+
+ const poll = await Poll.findOne({poll_id})
+
+ if(!poll)
+  return res.json({error:"Poll not found"})
+
+ poll.status="ended"
+
+ poll.delete_at = new Date(
+  Date.now()+2*60*60*1000
+ )
+
+ await poll.save()
+
+ res.json({
+  message:"Poll force ended"
+ })
+
+})
+
 /* ---------------- REMOVE USER VOTES ---------------- */
 
-app.post("/api/remove-votes", async (req,res)=>{
+app.post("/api/remove-votes",async(req,res)=>{
 
  await connectDB()
 
@@ -288,7 +367,7 @@ app.post("/api/remove-votes", async (req,res)=>{
  for(const vote of votes){
 
   await Poll.updateOne(
-   {_id:vote.poll_id,"options.id":vote.option_id},
+   {poll_id:vote.poll_id,"options.id":vote.option_id},
    {$inc:{"options.$.votes":-1}}
   )
 
@@ -302,7 +381,7 @@ app.post("/api/remove-votes", async (req,res)=>{
 
 /* ---------------- CLEANUP EXPIRED POLLS ---------------- */
 
-app.get("/api/cleanup", async (req,res)=>{
+app.get("/api/cleanup",async(req,res)=>{
 
  await connectDB()
 
