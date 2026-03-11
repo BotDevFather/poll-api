@@ -216,10 +216,10 @@ app.post("/api/vote",async(req,res)=>{
  const poll = await Poll.findOne({poll_id})
 
  if(!poll)
-  return res.json({error:"Poll not found"})
+  return res.json({message:"poll was not found"})
 
  if(poll.status==="ended")
-  return res.json({error:"Poll ended"})
+  return res.json({message:"poll was ended"})
 
  const optionExists = poll.options.find(
   o=>o.id===option_id
