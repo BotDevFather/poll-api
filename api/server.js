@@ -234,12 +234,12 @@ app.post("/api/vote",async(req,res)=>{
  })
 
  if(poll.lock==="On" && existing)
-  return res.json({message:"Vote locked",poll_id:poll_id})
+  return res.json({message:"vote is locked",poll_id:poll_id})
 
  if(existing){
 
   if(existing.option_id===option_id)
-   return res.json({message:"Already voted",poll_id:poll_id})
+   return res.json({message:"already voted",poll_id:poll_id})
 
   await Poll.updateOne(
    {poll_id,"options.id":existing.option_id},
@@ -289,7 +289,7 @@ app.post("/api/vote",async(req,res)=>{
  }
 
  res.json({
-  message:"Vote counted",poll_id:poll_id
+  message:"vote is counted",poll_id:poll_id
  })
 
 })
