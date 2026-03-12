@@ -277,7 +277,7 @@ app.post("/api/vote",async(req,res)=>{
 
  if(!subscribed){
   return res.json({
-   error:"User must join required channels",
+   message:"account is not joined the required channel.Please Join",
    channels:channels
   })
  }
