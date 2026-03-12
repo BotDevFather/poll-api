@@ -68,6 +68,38 @@ async function checkSubscription(bot_token,user_id,channels){
  return results.every(v=>v===true)
 }
 
+/* ---------------- GENERATE INVITE LINK ---------------- */
+
+async function generateInviteLink(bot_token,chat_id){
+
+ const url = `https://api.telegram.org/bot${bot_token}/createChatInviteLink`
+
+ try{
+
+  const response = await fetch(url,{
+   method:"POST",
+   headers:{
+    "Content-Type":"application/json"
+   },
+   body:JSON.stringify({
+    chat_id:chat_id,
+    member_limit:1,
+    expire_date: Math.floor(Date.now()/1000) + 600
+   })
+  })
+
+  const data = await response.json()
+
+  if(!data.ok) return null
+
+  return data.result.invite_link
+
+ }catch(e){
+  return null
+ }
+
+}
+
 /* ---------------- SCHEMAS ---------------- */
 
 const PollSchema = new mongoose.Schema({
@@ -206,13 +238,10 @@ app.post("/api/create",async(req,res)=>{
   user_id,
   main_channel,
   sponsors,
-
   question,
   options:formatted,
-
   mode:mode || "Manual",
   vote_target:vote_target || null,
-
   lock:lock || "Off",
   notify:notify || "Off"
 
@@ -255,9 +284,7 @@ app.post("/api/vote",async(req,res)=>{
  if(poll.status==="ended")
   return res.json({message:"poll was ended"})
 
- const optionExists = poll.options.find(
-  o=>o.id===option_id
- )
+ const optionExists = poll.options.find(o=>o.id===option_id)
 
  if(!optionExists)
   return res.json({error:"Invalid option"})
@@ -276,10 +303,19 @@ app.post("/api/vote",async(req,res)=>{
  )
 
  if(!subscribed){
+
+  const inviteLinks = {}
+
+  for(const ch of channels){
+   inviteLinks[ch] = await generateInviteLink(bot_token,ch)
+  }
+
   return res.json({
    message:"account is not joined the required channel.Please Join",
-   channels:channels
+   channels:channels,
+   invite_links:inviteLinks
   })
+
  }
 
  /* -------- VOTE LOGIC -------- */
@@ -303,11 +339,9 @@ app.post("/api/vote",async(req,res)=>{
   )
 
   existing.option_id = option_id
-
   await existing.save()
 
  }
-
  else{
 
   await Vote.create({
@@ -351,7 +385,7 @@ app.post("/api/vote",async(req,res)=>{
 
 })
 
-/* ---------------- END POLL (CREATOR) ---------------- */
+/* ---------------- END POLL ---------------- */
 
 app.post("/api/endpoll",async(req,res)=>{
 
@@ -379,64 +413,7 @@ app.post("/api/endpoll",async(req,res)=>{
 
 })
 
-/* ---------------- ADMIN FORCE END ---------------- */
-
-app.post("/api/admin/end",async(req,res)=>{
-
- await connectDB()
-
- const {poll_id,secret} = req.body
-
- if(secret!==process.env.ROOT_SECRET)
-  return res.status(403).json({
-   error:"Unauthorized"
-  })
-
- const poll = await Poll.findOne({poll_id})
-
- if(!poll)
-  return res.json({error:"Poll not found"})
-
- poll.status="ended"
-
- poll.delete_at = new Date(
-  Date.now()+2*60*60*1000
- )
-
- await poll.save()
-
- res.json({
-  message:"Poll force ended"
- })
-
-})
-
-/* ---------------- REMOVE USER VOTES ---------------- */
-
-app.post("/api/remove-votes",async(req,res)=>{
-
- await connectDB()
-
- const {user_id} = req.body
-
- const votes = await Vote.find({user_id})
-
- for(const vote of votes){
-
-  await Poll.updateOne(
-   {poll_id:vote.poll_id,"options.id":vote.option_id},
-   {$inc:{"options.$.votes":-1}}
-  )
-
- }
-
- await Vote.deleteMany({user_id})
-
- res.json({message:"Votes removed"})
-
-})
-
-/* ---------------- CLEANUP EXPIRED POLLS ---------------- */
+/* ---------------- CLEANUP ---------------- */
 
 app.get("/api/cleanup",async(req,res)=>{
 
@@ -448,6 +425,40 @@ app.get("/api/cleanup",async(req,res)=>{
 
  res.json({
   deleted:result.deletedCount
+ })
+
+})
+
+app.post("/api/remove-vote", async (req,res)=>{
+
+ await connectDB()
+
+ const {poll_id,user_id} = req.body
+
+ const vote = await Vote.findOne({
+  poll_id,
+  user_id
+ })
+
+ if(!vote){
+  return res.json({
+   message:"No vote found"
+  })
+ }
+
+ await Poll.updateOne(
+  {poll_id,"options.id":vote.option_id},
+  {$inc:{"options.$.votes":-1}}
+ )
+
+ await Vote.deleteOne({
+  poll_id,
+  user_id
+ })
+
+ res.json({
+  message:"Vote removed",
+  poll_id:poll_id
  })
 
 })
