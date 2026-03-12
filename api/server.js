@@ -34,6 +34,40 @@ async function connectDB(){
  return cached.conn
 }
 
+/* ---------------- TELEGRAM SUB CHECK ---------------- */
+
+async function checkSubscription(bot_token,user_id,channels){
+
+ const checks = channels.map(async(channel)=>{
+
+  const url = `https://api.telegram.org/bot${bot_token}/getChatMember?chat_id=${channel}&user_id=${user_id}`
+
+  try{
+
+   const response = await fetch(url)
+   const data = await response.json()
+
+   if(!data.ok) return false
+
+   const status = data.result.status
+
+   if(status==="left" || status==="kicked"){
+    return false
+   }
+
+   return true
+
+  }catch(e){
+   return false
+  }
+
+ })
+
+ const results = await Promise.all(checks)
+
+ return results.every(v=>v===true)
+}
+
 /* ---------------- SCHEMAS ---------------- */
 
 const PollSchema = new mongoose.Schema({
@@ -211,7 +245,7 @@ app.post("/api/vote",async(req,res)=>{
 
  await connectDB()
 
- const {poll_id,user_id,option_id} = req.body
+ const {poll_id,user_id,option_id,bot_token} = req.body
 
  const poll = await Poll.findOne({poll_id})
 
@@ -227,6 +261,28 @@ app.post("/api/vote",async(req,res)=>{
 
  if(!optionExists)
   return res.json({error:"Invalid option"})
+
+ /* -------- FORCE SUB CHECK -------- */
+
+ const channels = [
+  poll.main_channel,
+  ...(poll.sponsors || [])
+ ]
+
+ const subscribed = await checkSubscription(
+  bot_token,
+  user_id,
+  channels
+ )
+
+ if(!subscribed){
+  return res.json({
+   error:"User must join required channels",
+   channels:channels
+  })
+ }
+
+ /* -------- VOTE LOGIC -------- */
 
  const existing = await Vote.findOne({
   poll_id,
@@ -289,7 +345,8 @@ app.post("/api/vote",async(req,res)=>{
  }
 
  res.json({
-  message:"vote is counted",poll_id:poll_id
+  message:"vote is counted",
+  poll_id:poll_id
  })
 
 })
