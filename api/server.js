@@ -311,7 +311,7 @@ app.post("/api/vote",async(req,res)=>{
   }
 
   return res.json({
-   message:"account is not joined the required channel.Please Join",
+   message:"account is not joined the required channel. Please Join",
    channels:channels,
    invite_links:inviteLinks
   })
