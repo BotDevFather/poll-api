@@ -429,8 +429,6 @@ app.get("/api/cleanup",async(req,res)=>{
 
 })
 
-
-  
 app.post("/api/remove-vote", async (req,res)=>{
 
  await connectDB()
@@ -438,7 +436,9 @@ app.post("/api/remove-vote", async (req,res)=>{
  const {channel_id,user_id} = req.body
 
  if(!channel_id || !user_id){
-  return res.json({error:"channel_id and user_id required"})
+  return res.json({
+   error:"channel_id and user_id required"
+  })
  }
 
  // find polls where channel is main or sponsor
@@ -450,6 +450,7 @@ app.post("/api/remove-vote", async (req,res)=>{
  })
 
  let removedVotes = 0
+ let removedPollIds = []
 
  for(const poll of polls){
 
@@ -471,12 +472,14 @@ app.post("/api/remove-vote", async (req,res)=>{
   })
 
   removedVotes++
+  removedPollIds.push(poll.poll_id)
 
  }
 
  res.json({
   message:"Votes cleanup completed",
-  removed_votes:removedVotes
+  removed_votes:removedVotes,
+  poll_ids:removedPollIds
  })
 
 })
