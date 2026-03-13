@@ -204,7 +204,7 @@ app.get("/",async(req,res)=>{
 
 })
 
-/* ---------------- CREATE POLL ---------------- */
+/* ---------------- CREATE POLL ----------------*/
 
 app.post("/api/create",async(req,res)=>{
 
@@ -220,8 +220,7 @@ app.post("/api/create",async(req,res)=>{
   mode,
   lock,
   notify,
-  vote_target,
-  bot_token
+  vote_target
  } = req.body
 
  if(!poll_id || !question || !options)
@@ -248,22 +247,7 @@ app.post("/api/create",async(req,res)=>{
 
  })
 
- /* -------- GENERATE SPONSOR INVITE LINKS -------- */
-
- const sponsor_invite_links = {}
-
- if(sponsors && bot_token){
-
-  for(const ch of sponsors){
-   sponsor_invite_links[ch] = await generateInviteLink(bot_token,ch)
-  }
-
- }
-
- res.json({
-  poll: poll,
-  sponsor_invite_links: sponsor_invite_links
- })
+ res.json(poll)
 
 })
 
