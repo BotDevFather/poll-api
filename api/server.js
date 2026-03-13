@@ -429,36 +429,54 @@ app.get("/api/cleanup",async(req,res)=>{
 
 })
 
+
+  
 app.post("/api/remove-vote", async (req,res)=>{
 
  await connectDB()
 
- const {poll_id,user_id} = req.body
+ const {channel_id,user_id} = req.body
 
- const vote = await Vote.findOne({
-  poll_id,
-  user_id
- })
-
- if(!vote){
-  return res.json({
-   message:"No vote found"
-  })
+ if(!channel_id || !user_id){
+  return res.json({error:"channel_id and user_id required"})
  }
 
- await Poll.updateOne(
-  {poll_id,"options.id":vote.option_id},
-  {$inc:{"options.$.votes":-1}}
- )
-
- await Vote.deleteOne({
-  poll_id,
-  user_id
+ // find polls where channel is main or sponsor
+ const polls = await Poll.find({
+  $or:[
+   {main_channel:channel_id},
+   {sponsors:channel_id}
+  ]
  })
 
+ let removedVotes = 0
+
+ for(const poll of polls){
+
+  const vote = await Vote.findOne({
+   poll_id:poll.poll_id,
+   user_id:user_id
+  })
+
+  if(!vote) continue
+
+  await Poll.updateOne(
+   {poll_id:poll.poll_id,"options.id":vote.option_id},
+   {$inc:{"options.$.votes":-1}}
+  )
+
+  await Vote.deleteOne({
+   poll_id:poll.poll_id,
+   user_id:user_id
+  })
+
+  removedVotes++
+
+ }
+
  res.json({
-  message:"Vote removed",
-  poll_id:poll_id
+  message:"Votes cleanup completed",
+  removed_votes:removedVotes
  })
 
 })
